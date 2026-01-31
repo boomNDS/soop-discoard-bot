@@ -21,13 +21,13 @@ uv sync
 4) Run the API:
 
 ```bash
-uv run uvicorn soop_discord_bot.app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn soupnotify.app.main:app --host 0.0.0.0 --port 8000
 ```
 
 5) Run the bot:
 
 ```bash
-uv run python -m soop_discord_bot.bot
+uv run python -m soupnotify.bot
 ```
 
 Set `SHARD_COUNT` if you need Discord sharding for large server counts.

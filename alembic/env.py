@@ -5,6 +5,7 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from dotenv import load_dotenv
 
 # Alembic Config object
 config = context.config
@@ -18,6 +19,7 @@ target_metadata = None
 
 
 def get_database_url() -> str:
+    load_dotenv()
     return os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
 
 

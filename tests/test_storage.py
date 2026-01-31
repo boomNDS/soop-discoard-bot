@@ -1,4 +1,4 @@
-from soop_discord_bot.core.storage import Storage
+from soupnotify.core.storage import Storage
 
 
 def test_storage_add_get_remove(tmp_path):
@@ -31,3 +31,21 @@ def test_storage_add_get_remove(tmp_path):
     removed_all = storage.remove_link("guild-1")
     assert removed_all == 1
     assert storage.get_links("guild-1") == []
+
+
+def test_storage_defaults_and_live_status(tmp_path):
+    db_path = tmp_path / "soop.db"
+    storage = Storage(f"sqlite:///{db_path}")
+
+    assert storage.get_default_notify_channel("guild-1") is None
+    storage.set_default_notify_channel("guild-1", "channel-9")
+    assert storage.get_default_notify_channel("guild-1") == "channel-9"
+    storage.set_default_notify_channel("guild-1", None)
+    assert storage.get_default_notify_channel("guild-1") is None
+
+    storage.set_live_status("guild-1", "streamer-1", True, "111")
+    storage.set_live_status("guild-1", "streamer-2", False, None)
+    live = storage.load_live_status()
+    assert live["guild-1:streamer-1"]["is_live"] is True
+    assert live["guild-1:streamer-1"]["broad_no"] == "111"
+    assert live["guild-1:streamer-2"]["is_live"] is False

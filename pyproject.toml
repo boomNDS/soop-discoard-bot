@@ -1,7 +1,7 @@
 [project]
-name = "soop-discord-bot"
+name = "soupnotify"
 version = "0.1.0"
-description = "Community Discord bot that posts SOOP live notifications."
+description = "Get notified when your favorite streamers go live on SOOP."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
@@ -15,6 +15,7 @@ dependencies = [
   "python-dotenv>=1.0",
   "sqlalchemy>=2.0",
   "alembic>=1.13",
+  "psycopg[binary]>=3.2",
 ]
 
 [build-system]

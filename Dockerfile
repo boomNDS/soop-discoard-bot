@@ -17,9 +17,10 @@ RUN uv sync --frozen --no-dev
 
 # Copy application code
 COPY src ./src
+COPY scripts ./scripts
 
 EXPOSE 8000
 
 # Default: run the FastAPI app. Run the bot with: 
 # docker run ... uv run python -m src.bot
-CMD ["uv", "run", "uvicorn", "soop_discord_bot.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "soupnotify.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

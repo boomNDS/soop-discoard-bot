@@ -1,0 +1,1 @@
+"""SOOP Discord bot package."""

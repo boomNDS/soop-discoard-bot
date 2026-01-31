@@ -88,7 +88,30 @@ class SoopPoller:
                 )
                 stream_url = f"{self._stream_url_base}/{soop_channel_id}"
                 thumbnail_url = _thumbnail_url(self._client, info)
-                embed = build_live_embed(soop_channel_id, stream_url, info, thumbnail_url)
+                embed_settings = self._storage.get_embed_template(guild_id)
+                title_override = _render_template_value(
+                    embed_settings.get("title"),
+                    soop_channel_id,
+                    notify_channel_id,
+                    guild.name if guild else guild_id,
+                    self._stream_url_base,
+                )
+                description_override = _render_template_value(
+                    embed_settings.get("description"),
+                    soop_channel_id,
+                    notify_channel_id,
+                    guild.name if guild else guild_id,
+                    self._stream_url_base,
+                )
+                embed = build_live_embed(
+                    soop_channel_id,
+                    stream_url,
+                    info,
+                    thumbnail_url,
+                    title_override=title_override,
+                    description_override=description_override,
+                    color_hex=embed_settings.get("color"),
+                )
                 await self._notifier.enqueue(notify_channel_id, message, embed=embed)
             self._last_live[key] = is_live
             self._last_broad_no[key] = broad_no
@@ -113,6 +136,24 @@ def _render_message(
             .replace("{soop_url}", soop_url)
         )
     return f"\N{LARGE RED CIRCLE} **Live Now** on SOOP: `{soop_channel_id}` {soop_url}"
+
+
+def _render_template_value(
+    template: str | None,
+    soop_channel_id: str,
+    notify_channel_id: int,
+    guild_name: str,
+    stream_url_base: str,
+) -> str | None:
+    if not template:
+        return None
+    soop_url = f"{stream_url_base}/{soop_channel_id}"
+    return (
+        template.replace("{soop_channel_id}", soop_channel_id)
+        .replace("{notify_channel}", f"<#{notify_channel_id}>")
+        .replace("{guild}", guild_name)
+        .replace("{soop_url}", soop_url)
+    )
 
 
 def _thumbnail_url(client: SoopClient, info: dict | None) -> str | None:

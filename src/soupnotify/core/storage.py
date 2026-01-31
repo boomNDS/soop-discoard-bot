@@ -53,6 +53,9 @@ class Storage:
             metadata,
             Column("guild_id", String, primary_key=True),
             Column("default_notify_channel_id", String, nullable=True),
+            Column("embed_title", Text, nullable=True),
+            Column("embed_description", Text, nullable=True),
+            Column("embed_color", String, nullable=True),
         )
         live_status = Table(
             "live_status",
@@ -67,8 +70,24 @@ class Storage:
         return StorageTables(guild_streamers=guild_streamers, guild_settings=guild_settings, live_status=live_status)
 
     def _ensure_schema(self) -> None:
-        self._metadata.create_all(self._engine)
+        if not self._schema_exists():
+            raise RuntimeError(
+                "Database schema is missing. Run `alembic upgrade head` before starting the app."
+            )
         self._migrate_legacy_links()
+
+    def _schema_exists(self) -> bool:
+        with self._engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    "SELECT table_name FROM information_schema.tables WHERE table_name='guild_streamers'"
+                )
+                if self._engine.dialect.name != "sqlite"
+                else text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='guild_streamers'"
+                )
+            ).fetchone()
+        return result is not None
 
     def _migrate_legacy_links(self) -> None:
         # One-time migration for older single-link schema (sqlite only).
@@ -204,6 +223,46 @@ class Storage:
         if not row:
             return None
         return row[0]
+
+    def set_embed_template(
+        self,
+        guild_id: str,
+        title: str | None,
+        description: str | None,
+        color: str | None,
+    ) -> None:
+        stmt = text(
+            """
+            INSERT INTO guild_settings (guild_id, embed_title, embed_description, embed_color)
+            VALUES (:guild_id, :embed_title, :embed_description, :embed_color)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET embed_title=excluded.embed_title,
+                          embed_description=excluded.embed_description,
+                          embed_color=excluded.embed_color
+            """
+        )
+        with self._engine.begin() as conn:
+            conn.execute(
+                stmt,
+                {
+                    "guild_id": guild_id,
+                    "embed_title": title,
+                    "embed_description": description,
+                    "embed_color": color,
+                },
+            )
+
+    def get_embed_template(self, guild_id: str) -> dict[str, str | None]:
+        stmt = select(
+            self._tables.guild_settings.c.embed_title,
+            self._tables.guild_settings.c.embed_description,
+            self._tables.guild_settings.c.embed_color,
+        ).where(self._tables.guild_settings.c.guild_id == guild_id)
+        with self._engine.begin() as conn:
+            row = conn.execute(stmt).fetchone()
+        if not row:
+            return {"title": None, "description": None, "color": None}
+        return {"title": row[0], "description": row[1], "color": row[2]}
 
     def set_live_status(
         self, guild_id: str, soop_channel_id: str, is_live: bool, broad_no: str | None

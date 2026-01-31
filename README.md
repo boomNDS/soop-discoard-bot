@@ -119,6 +119,7 @@ Live detection currently uses the `/broad/list` endpoint and matches `user_id` a
 - `/status` (lists linked streamers)
 - `/test [soop_channel:<id>]`
 - `/template action:<set|clear|list> soop_channel:<id> message_template:<text>`
+- `/embed_template action:<set|clear|show> title:<text> description:<text> color:<hex>`
 - `/default_channel action:<set|clear> channel:<#channel>`
 - `/link_list [page:<n>]`
 - `/config`
@@ -132,6 +133,8 @@ Template variables:
 - `{soop_url}` (e.g. `https://play.sooplive.co.kr/<id>`)
 - `{notify_channel}`
 - `{guild}`
+
+Embed template supports the same variables for title/description.
 
 Notifications include a Discord embed (title, category, viewers) when SOOP channel info is available.
 Embed image is built from `SOOP_THUMBNAIL_URL_TEMPLATE` using the `broadNo` value.
@@ -171,7 +174,7 @@ The compose file runs two services (api + bot) plus Postgres, and validates requ
 
 ## Migrations
 
-Run database migrations with Alembic (Postgres or SQLite):
+Run database migrations with Alembic (Postgres or SQLite). The app requires migrations before startup:
 
 ```bash
 uv run alembic upgrade head

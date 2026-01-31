@@ -338,9 +338,13 @@ async def config(ctx: discord.ApplicationContext) -> None:
         return
     default_channel = storage.get_default_notify_channel(str(ctx.guild.id))
     link_count = len(storage.get_links(str(ctx.guild.id)))
+    embed_settings = storage.get_embed_template(str(ctx.guild.id))
     lines = [
         f"Default channel: {f'<#{default_channel}>' if default_channel else 'None'}",
         f"Linked streamers: {link_count}",
+        f"Embed title: {embed_settings.get('title') or 'default'}",
+        f"Embed description: {embed_settings.get('description') or 'default'}",
+        f"Embed color: {embed_settings.get('color') or 'default'}",
         f"Poll interval: {settings.poll_interval_seconds}s",
         f"Queue size: {metrics.queue_size}",
     ]
@@ -356,10 +360,13 @@ async def help_command(ctx: discord.ApplicationContext) -> None:
         "/link_list [page:<n>]",
         "/status",
         "/test [soop_channel:<id>]",
-        "/force_noti_gssspotted",
         "/template action:<set|clear|list> soop_channel:<id> message_template:<text>",
+        "/embed_template action:<set|clear|show> title:<text> description:<text> color:<hex>",
         "/default_channel action:<set|clear> channel:<#channel>",
         "/config",
+        "/metrics",
+        "/help",
+        "/debug_live_status",
     ]
     await ctx.respond("\n".join(lines), ephemeral=True)
 
@@ -403,6 +410,46 @@ async def debug_live_status(ctx: discord.ApplicationContext) -> None:
     await ctx.respond("\n".join(lines), ephemeral=True)
 
 
+@bot.slash_command(name="embed_template", description="Customize live notification embed")
+async def embed_template(
+    ctx: discord.ApplicationContext,
+    action: discord.Option(str, "Action", choices=["set", "clear", "show"], required=True),
+    title: discord.Option(str, "Embed title (supports variables)", required=False),
+    description: discord.Option(str, "Embed description (supports variables)", required=False),
+    color: discord.Option(str, "Hex color, e.g. #FF5500", required=False),
+) -> None:
+    if not ctx.guild:
+        await ctx.respond("This command must be used in a server.")
+        return
+    if action in {"set", "clear"} and not await _require_admin(ctx):
+        return
+    if action == "show":
+        current = storage.get_embed_template(str(ctx.guild.id))
+        lines = [
+            f"Title: {current.get('title') or 'default'}",
+            f"Description: {current.get('description') or 'default'}",
+            f"Color: {current.get('color') or 'default'}",
+            "Variables: {soop_channel_id}, {soop_url}, {notify_channel}, {guild}",
+        ]
+        await ctx.respond("\n".join(lines), ephemeral=True)
+        return
+    if action == "clear":
+        storage.set_embed_template(str(ctx.guild.id), None, None, None)
+        await ctx.respond("Embed template cleared.", ephemeral=True)
+        return
+    if not title and not description and not color:
+        await ctx.respond("Provide at least one of title, description, or color.", ephemeral=True)
+        return
+    if color:
+        color_value = color.strip().lstrip("#")
+        if len(color_value) != 6 or any(c not in "0123456789abcdefABCDEF" for c in color_value):
+            await ctx.respond("Color must be a 6-digit hex value like #FF5500.", ephemeral=True)
+            return
+        color = color_value
+    storage.set_embed_template(str(ctx.guild.id), title, description, color)
+    await ctx.respond("Embed template updated.", ephemeral=True)
+
+
 def _render_template(
     template: str | None,
     soop_channel_id: str,
@@ -419,6 +466,24 @@ def _render_template(
             .replace("{soop_url}", soop_url)
         )
     return f"\N{LARGE RED CIRCLE} **Live Now** on SOOP: `{soop_channel_id}` {soop_url}"
+
+
+def _render_template_value(
+    template: str | None,
+    soop_channel_id: str,
+    notify_channel_id: int,
+    guild_name: str,
+    stream_url_base: str,
+) -> str | None:
+    if not template:
+        return None
+    soop_url = f"{stream_url_base.rstrip('/')}/{soop_channel_id}"
+    return (
+        template.replace("{soop_channel_id}", soop_channel_id)
+        .replace("{notify_channel}", f"<#{notify_channel_id}>")
+        .replace("{guild}", guild_name)
+        .replace("{soop_url}", soop_url)
+    )
 
 
 def main() -> None:

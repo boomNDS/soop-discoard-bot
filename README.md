@@ -1,19 +1,32 @@
 # SoupNotify
 
+<p align="center">
+  <img src="assets/logo.png" alt="SoupNotify Logo" width="160" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.13-blue" alt="Python 3.13" />
+  <img src="https://img.shields.io/badge/FastAPI-%3E=0.110-009688" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/Discord-Pycord-5865F2" alt="Pycord" />
+  <img src="https://img.shields.io/badge/DB-PostgreSQL-336791" alt="PostgreSQL" />
+</p>
+
 Get notified when your favorite streamers go live on SOOP. Fast, reliable alerts with easy setup.
 
-## Goals
+## Overview
 
-- Let server admins invite the bot and link multiple SOOP streamers/channels with commands.
-- Send a Discord notification when any linked streamer goes live on SOOP.
-- Run as a production-ready Python service using FastAPI and uv.
+- Multi-server support with per-guild configuration.
+- Notifies once per live session (tracks `broadNo` to avoid spam).
+- Discord embeds with title, category, viewers, and thumbnail.
+- Postgres or SQLite storage, FastAPI health endpoints, and a built-in send queue.
 
 ## Architecture
 
-- **Discord bot**: Slash commands for `/link`, `/unlink`, `/status`, `/test`.
-- **FastAPI service**: Health checks and a lightweight API surface for future webhook integration.
-- **Storage**: Persist guild → SOOP channel mappings (SQLite or Postgres), supports multiple streamers.
-- **Notifier**: Posts to configured Discord channels when live events occur.
+- **Discord bot**: Slash commands, admin-only safeguards, and optional sharding.
+- **SOOP polling**: Polls `/broad/list` and verifies live sessions via `broadNo`.
+- **Storage**: Postgres (recommended) or SQLite for local dev.
+- **Notifier**: In-process queue with burst mode and retry/backoff.
+- **API**: FastAPI health endpoints (`/`, `/healthz`, `/readyz`).
 
 ## Quick Start (local)
 
@@ -71,7 +84,7 @@ DISCORD_APPLICATION_ID=your_app_id
 | --- | --- | --- |
 | DISCORD_TOKEN | Discord bot token | Yes |
 | DISCORD_APPLICATION_ID | Discord application ID | Yes |
-| DISCORD_GUILD_ID | Optional dev guild for faster command sync | No |
+| DISCORD_GUILD_ID | Dev-only: enable instant slash command sync | No |
 | SOOP_API_BASE_URL | SOOP API base URL | Yes |
 | SOOP_CLIENT_ID | SOOP OpenAPI client_id | Yes |
 | SOOP_CHANNEL_API_BASE_URL | Channel API base URL (single streamer) | No |
@@ -155,7 +168,6 @@ docker compose up --build
 ```
 
 The compose file runs two services (api + bot) plus Postgres, and validates required env vars on startup.
-It validates required env vars on startup and exits with an error if missing.
 
 ## Migrations
 

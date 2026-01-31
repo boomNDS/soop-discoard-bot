@@ -143,6 +143,28 @@ Admin-only commands: `/link`, `/unlink`, `/unlink_all`, `/template set/clear`, `
 
 Live notifications are de-duplicated per streamer using the latest `broadNo` so restarts do not spam.
 
+## Logic Flow
+
+```mermaid
+flowchart TD
+  A[Discord Admin link command] --> B[Store guild_streamers]
+  A2[Default channel or template commands] --> B2[Store guild_settings]
+
+  subgraph Polling Loop
+    C[Load all links] --> D[Collect unique streamer IDs]
+    D --> E[SOOP /broad/list]
+    E --> F{Is streamer live?}
+    F -->|No| G[Update live_status is_live=false]
+    F -->|Yes| H[Fetch channel broad info]
+    H --> I{broadNo changed?}
+    I -->|No| J[Skip notify]
+    I -->|Yes| K[Build message + embed]
+    K --> L[Queue notification]
+    L --> M[Notifier sends with retry and burst]
+    M --> N[Update live_status with broadNo]
+  end
+```
+
 ## Deployment (Docker)
 
 Build the container:

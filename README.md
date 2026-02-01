@@ -84,8 +84,6 @@ uv run python -m soupnotify.bot
 Minimum env values for API only (Postgres via docker-compose):
 
 ```
-SOOP_API_BASE_URL=https://openapi.sooplive.co.kr
-SOOP_CLIENT_ID=
 DATABASE_URL=postgresql+psycopg://root:change_me@db:5432/soupnotify
 ```
 
@@ -107,16 +105,14 @@ DISCORD_APPLICATION_ID=your_app_id
 | DISCORD_TOKEN | Discord bot token | Yes |
 | DISCORD_APPLICATION_ID | Discord application ID | Yes |
 | DISCORD_GUILD_ID | Dev-only: enable instant slash command sync | No |
-| SOOP_API_BASE_URL | Legacy SOOP API base URL (unused for channel polling) | No |
-| SOOP_CLIENT_ID | Legacy SOOP OpenAPI client_id (unused for channel polling) | No |
 | SOOP_CHANNEL_API_BASE_URL | Channel API base URL (single streamer) | No |
+| SOOP_CHANNEL_HEADERS | Optional JSON headers for channel API | No |
 | SOOP_HARDCODE_STREAMER_ID | Force-check one streamer via channel API | No |
 | SOOP_STREAM_URL_BASE | Base URL for streamer pages | No |
 | SOOP_THUMBNAIL_URL_TEMPLATE | Thumbnail template (uses {broad_no}) | No |
 | NOTIFY_CHANNEL_ID | Default Discord channel for notifications | No |
 | DATABASE_URL | Database connection string | Yes |
 | POLL_INTERVAL_SECONDS | Polling interval in seconds | No |
-| SOOP_MAX_PAGES | Max pages to scan per poll | No |
 | SOOP_RETRY_MAX | SOOP request retry attempts | No |
 | SOOP_RETRY_BACKOFF | Base seconds for retry backoff | No |
 | SOOP_INFO_COOLDOWN_SECONDS | Cache cooldown for channel info | No |
@@ -138,6 +134,12 @@ Live detection uses the channel endpoint:
 https://api-channel.sooplive.co.kr/v1.1/channel/<soop_channel_id>/home/section/broad
 ```
 
+If some channels return empty JSON, set optional headers:
+
+```
+SOOP_CHANNEL_HEADERS={"User-Agent":"Mozilla/5.0","Referer":"https://www.sooplive.co.kr/","Origin":"https://www.sooplive.co.kr"}
+```
+
 ## Discord Commands
 
 - `/link soop_channel:<id> [notify_channel:<#channel|id>]` (uses default if set)
@@ -154,6 +156,7 @@ https://api-channel.sooplive.co.kr/v1.1/channel/<soop_channel_id>/home/section/b
 - `/metrics`
 - `/help`
 - `/debug_live_status`
+- `/reset_live_status`
 - `/sync`
 
 Template variables:
@@ -197,6 +200,15 @@ For production, run the bot and API as separate processes (recommended):
 
 ```bash
 docker compose up --build
+```
+
+Defaults (from `docker-compose.yml`):
+
+```
+POSTGRES_USER=root
+POSTGRES_PASSWORD=change_me
+POSTGRES_DB=soupnotify
+DATABASE_URL=postgresql+psycopg://root:change_me@db:5432/soupnotify
 ```
 
 The compose file runs two services (api + bot) plus Postgres, and validates required env vars on startup.

@@ -3,30 +3,24 @@ import logging
 
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
 
 from soupnotify.bot.cogs.admin import AdminCog
 from soupnotify.bot.cogs.help import HelpCog
 from soupnotify.bot.cogs.links import LinksCog
+from soupnotify.core.config import load_bot_settings
 from soupnotify.core.metrics import BotMetrics
 from soupnotify.core.notifier import Notifier
 from soupnotify.core.storage import Storage
-from soupnotify.core.config import load_bot_settings
 from soupnotify.soop.client import SoopClient
 from soupnotify.soop.poller import SoopPoller
 
-
-load_dotenv()
 
 settings = load_bot_settings()
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
 
-intents = discord.Intents.default()
-
-bot_kwargs: dict[str, object] = {
-    "command_prefix": "!",
-    "intents": intents,
+bot_kwargs = {
+    "intents": discord.Intents.default(),
     "application_id": settings.discord_application_id,
 }
 if settings.shard_count:
@@ -36,14 +30,15 @@ bot = commands.Bot(**bot_kwargs)
 storage = Storage(settings.database_url)
 metrics = BotMetrics()
 soop_client = SoopClient(
-    settings.soop_api_base_url,
-    settings.soop_client_id,
-    settings.soop_max_pages,
+    settings.soop_channel_api_base_url,
+    "",
+    0,
     settings.soop_channel_api_base_url,
     settings.soop_hardcode_streamer_id,
     settings.soop_thumbnail_url_template,
     settings.soop_retry_max,
     settings.soop_retry_backoff,
+    channel_headers=settings.soop_channel_headers,
 )
 notifier = Notifier(
     bot,
@@ -77,7 +72,6 @@ async def on_application_command(ctx: discord.ApplicationContext) -> None:
     try:
         await ctx.defer(ephemeral=True)
     except discord.errors.InteractionResponded:
-        # Another handler already responded; avoid crashing the event loop.
         return
 
 

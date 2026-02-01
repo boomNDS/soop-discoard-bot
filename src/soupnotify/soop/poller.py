@@ -87,9 +87,7 @@ class SoopPoller:
                 info = info_map.get(soop_channel_id)
                 broad_no = str(info.get("broadNo")) if info and info.get("broadNo") else None
 
-            should_notify = is_live and (
-                not was_live or (broad_no is not None and broad_no != prev_broad_no)
-            )
+            should_notify = is_live and not was_live
 
             if should_notify:
                 guild = bot.get_guild(int(guild_id)) if guild_id.isdigit() else None
@@ -122,7 +120,8 @@ class SoopPoller:
                     description_override=description_override,
                     color_hex=color_override,
                 )
-                await self._notifier.enqueue(notify_channel_id, message, embed=embed)
+                view = _watch_view(stream_url)
+                await self._notifier.enqueue(notify_channel_id, message, embed=embed, view=view)
             self._last_live[key] = is_live
             self._last_broad_no[key] = broad_no
             self._storage.set_live_status(guild_id, soop_channel_id, is_live, broad_no)
@@ -158,3 +157,11 @@ def _mention_text(mention: dict[str, str | None]) -> str | None:
     if mention_type == "role" and value:
         return f"<@&{value}>"
     return None
+
+
+def _watch_view(stream_url: str) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(
+        discord.ui.Button(label="Watch Stream", style=discord.ButtonStyle.link, url=stream_url)
+    )
+    return view

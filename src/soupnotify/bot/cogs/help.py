@@ -41,7 +41,7 @@ class HelpCog(commands.Cog):
         )
         embed.add_field(
             name="Admin / Debug",
-            value="/config (admin)\n/metrics (admin)\n/debug_live_status (admin)\n/sync (admin)",
+            value="/config (admin)\n/metrics (admin)\n/debug_live_status (admin)\n/reset_live_status (admin)\n/sync (admin)",
             inline=False,
         )
         await safe_respond(ctx, embed=embed, ephemeral=True)

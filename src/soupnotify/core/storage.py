@@ -352,6 +352,15 @@ class Storage:
                         )
                     )
 
+    def remove_live_status(self, guild_id: str, soop_channel_id: str) -> int:
+        stmt = delete(self._tables.live_status).where(
+            (self._tables.live_status.c.guild_id == guild_id)
+            & (self._tables.live_status.c.soop_channel_id == soop_channel_id)
+        )
+        with self._engine.begin() as conn:
+            result = conn.execute(stmt)
+            return result.rowcount or 0
+
     def ping(self) -> bool:
         try:
             with self._engine.begin() as conn:

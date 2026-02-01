@@ -1,19 +1,31 @@
+import json
 import os
 from dataclasses import dataclass
+from typing import Any
+
+from dotenv import load_dotenv
+
+
+def _parse_json(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
 
 
 @dataclass(frozen=True)
 class Settings:
-    soop_api_base_url: str
-    soop_client_id: str
     soop_channel_api_base_url: str
+    soop_channel_headers: dict[str, Any]
     soop_hardcode_streamer_id: str | None
     soop_stream_url_base: str
     soop_thumbnail_url_template: str
     database_url: str
     notify_channel_id: str | None
     poll_interval_seconds: int
-    soop_max_pages: int
     notify_rate_per_second: float
     notify_burst_rate_per_second: float
     notify_burst_threshold: int
@@ -39,18 +51,15 @@ def _get_env(name: str, required: bool = False, default: str | None = None) -> s
 
 
 def load_settings() -> Settings:
+    load_dotenv()
     shard_raw = _get_env("SHARD_COUNT")
     shard_count = int(shard_raw) if shard_raw else None
     return Settings(
-        soop_api_base_url=_get_env(
-            "SOOP_API_BASE_URL", default="https://openapi.sooplive.co.kr"
-        )
-        or "https://openapi.sooplive.co.kr",
-        soop_client_id=_get_env("SOOP_CLIENT_ID", default="") or "",
         soop_channel_api_base_url=_get_env(
             "SOOP_CHANNEL_API_BASE_URL", default="https://api-channel.sooplive.co.kr"
         )
         or "https://api-channel.sooplive.co.kr",
+        soop_channel_headers=_parse_json(_get_env("SOOP_CHANNEL_HEADERS")),
         soop_hardcode_streamer_id=_get_env("SOOP_HARDCODE_STREAMER_ID"),
         soop_stream_url_base=_get_env(
             "SOOP_STREAM_URL_BASE", default="https://play.sooplive.co.kr"
@@ -64,7 +73,6 @@ def load_settings() -> Settings:
         database_url=_get_env("DATABASE_URL", required=True),
         notify_channel_id=_get_env("NOTIFY_CHANNEL_ID"),
         poll_interval_seconds=int(_get_env("POLL_INTERVAL_SECONDS", default="60") or "60"),
-        soop_max_pages=int(_get_env("SOOP_MAX_PAGES", default="5") or "5"),
         notify_rate_per_second=float(
             _get_env("NOTIFY_RATE_PER_SECOND", default="2") or "2"
         ),

@@ -12,7 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 def _is_admin(ctx: discord.ApplicationContext) -> bool:
-    perms = ctx.user.guild_permissions
+    member = ctx.user if isinstance(ctx.user, discord.Member) else None
+    if not member and ctx.guild:
+        member = ctx.guild.get_member(ctx.user.id)
+    if not member:
+        return False
+    perms = member.guild_permissions
     return perms.administrator or perms.manage_guild
 
 
@@ -101,6 +106,24 @@ class AdminCog(commands.Cog):
             for streamer, data in filtered.items()
         ]
         await safe_respond(ctx, "\n".join(lines), ephemeral=True)
+
+    @commands.slash_command(name="reset_live_status", description="Reset live status for a streamer")
+    async def reset_live_status(
+        self,
+        ctx: discord.ApplicationContext,
+        soop_channel_id: discord.Option(str, "SOOP channel identifier"),
+    ) -> None:
+        log_command(ctx, "reset_live_status")
+        if not ctx.guild:
+            await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
+            return
+        if not await _require_admin(ctx):
+            return
+        removed = self._storage.remove_live_status(str(ctx.guild.id), soop_channel_id)
+        if removed:
+            await safe_respond(ctx, f"Live status reset for `{soop_channel_id}`.", ephemeral=True)
+        else:
+            await safe_respond(ctx, "No live status row found for that streamer.", ephemeral=True)
 
     @commands.slash_command(name="sync", description="Manually sync slash commands")
     async def sync(self, ctx: discord.ApplicationContext) -> None:

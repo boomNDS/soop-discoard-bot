@@ -8,6 +8,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_HEADERS = {
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://www.sooplive.co.kr/",
+    "Origin": "https://www.sooplive.co.kr",
+}
+
+
 class SoopClient:
     def __init__(
         self,
@@ -19,6 +28,7 @@ class SoopClient:
         thumbnail_url_template: str,
         retry_max: int,
         retry_backoff: float,
+        channel_headers: dict[str, Any] | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._client_id = client_id
@@ -29,6 +39,7 @@ class SoopClient:
         self._retry_max = max(retry_max, 1)
         self._retry_backoff = max(retry_backoff, 0.1)
         self._client = httpx.AsyncClient(timeout=10.0)
+        self._channel_headers = {**DEFAULT_HEADERS, **(channel_headers or {})}
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -53,8 +64,9 @@ class SoopClient:
 
     async def fetch_broad_info(self, streamer_id: str) -> dict[str, Any] | None:
         url = f"{self._channel_api_base_url}/v1.1/channel/{streamer_id}/home/section/broad"
-        headers = {"Accept": "application/json"}
-        response = await self._request_with_retry(url, headers=headers, return_response=True)
+        response = await self._request_with_retry(
+            url, headers=self._channel_headers, return_response=True
+        )
         if response.status_code == 404:
             logger.warning("SOOP channel not found for %s", streamer_id)
             return None

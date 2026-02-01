@@ -12,7 +12,12 @@ CHANNEL_MENTION_RE = re.compile(r"^<#(\d+)>$")
 
 
 def _is_admin(ctx: discord.ApplicationContext) -> bool:
-    perms = ctx.user.guild_permissions
+    member = ctx.user if isinstance(ctx.user, discord.Member) else None
+    if not member and ctx.guild:
+        member = ctx.guild.get_member(ctx.user.id)
+    if not member:
+        return False
+    perms = member.guild_permissions
     return perms.administrator or perms.manage_guild
 
 

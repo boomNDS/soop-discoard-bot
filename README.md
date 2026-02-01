@@ -175,6 +175,26 @@ Admin-only commands: `/link`, `/unlink`, `/unlink_all`, `/template set/clear`, `
 
 Live notifications are de-duplicated per streamer using the latest `broadNo` so restarts do not spam.
 
+## Quick start (Discord)
+
+1) Set the default notify channel:
+
+```
+/default_channel action:set channel:#channel-you-want
+```
+
+2) Link a SOOP channel:
+
+```
+/link soop_channel:<id>
+```
+
+Example:
+
+```
+/link soop_channel:gssspotted
+```
+
 ## Deployment (Docker)
 
 Build the container:

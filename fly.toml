@@ -1,0 +1,12 @@
+app = "soup-notify"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[processes]
+  bot = "uv run python -m soupnotify.bot"
+
+[env]
+  LOG_LEVEL = "info"
+

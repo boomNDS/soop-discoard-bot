@@ -15,6 +15,9 @@ class BotMetrics:
     last_poll_at: float | None = None
     poll_count: int = 0
     last_live_count: int = 0
+    live_detected: int = 0
+    empty_responses: int = 0
+    last_empty_count: int = 0
     _queue_size: int = 0
 
     def record_poll(self, duration_ms: float, live_count: int) -> None:
@@ -22,6 +25,14 @@ class BotMetrics:
         self.last_poll_at = time.time()
         self.poll_count += 1
         self.last_live_count = live_count
+        self.last_empty_count = 0
+
+    def record_live_detected(self, count: int) -> None:
+        self.live_detected += count
+
+    def record_empty_response(self, count: int = 1) -> None:
+        self.empty_responses += count
+        self.last_empty_count = count
 
     def record_sent(self) -> None:
         self.messages_sent += 1

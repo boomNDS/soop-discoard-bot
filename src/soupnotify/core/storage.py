@@ -24,6 +24,7 @@ class StorageTables:
     guild_streamers: Table
     guild_settings: Table
     live_status: Table
+    poll_state: Table
 
 
 class Storage:
@@ -58,6 +59,9 @@ class Storage:
             Column("embed_color", String, nullable=True),
             Column("mention_type", String, nullable=True),
             Column("mention_value", String, nullable=True),
+            Column("admin_role_id", String, nullable=True),
+            Column("audit_channel_id", String, nullable=True),
+            Column("rate_limit_per_min", Integer, nullable=True),
         )
         live_status = Table(
             "live_status",
@@ -66,10 +70,22 @@ class Storage:
             Column("soop_channel_id", String, primary_key=True),
             Column("is_live", Integer, nullable=False),
             Column("broad_no", String, nullable=True),
+            Column("last_notified_at", String, nullable=True),
             Column("updated_at", String, nullable=False),
         )
+        poll_state = Table(
+            "poll_state",
+            metadata,
+            Column("key", String, primary_key=True),
+            Column("value", String, nullable=True),
+        )
         self._metadata = metadata
-        return StorageTables(guild_streamers=guild_streamers, guild_settings=guild_settings, live_status=live_status)
+        return StorageTables(
+            guild_streamers=guild_streamers,
+            guild_settings=guild_settings,
+            live_status=live_status,
+            poll_state=poll_state,
+        )
 
     def _ensure_schema(self) -> None:
         if not self._schema_exists():
@@ -297,16 +313,89 @@ class Storage:
             return {"type": None, "value": None}
         return {"type": row[0], "value": row[1]}
 
+    def set_admin_role(self, guild_id: str, role_id: str | None) -> None:
+        stmt = text(
+            """
+            INSERT INTO guild_settings (guild_id, admin_role_id)
+            VALUES (:guild_id, :role_id)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET admin_role_id=excluded.admin_role_id
+            """
+        )
+        with self._engine.begin() as conn:
+            conn.execute(stmt, {"guild_id": guild_id, "role_id": role_id})
+
+    def get_admin_role(self, guild_id: str) -> str | None:
+        stmt = select(self._tables.guild_settings.c.admin_role_id).where(
+            self._tables.guild_settings.c.guild_id == guild_id
+        )
+        with self._engine.begin() as conn:
+            row = conn.execute(stmt).fetchone()
+        if not row:
+            return None
+        return row[0]
+
+    def set_audit_channel(self, guild_id: str, channel_id: str | None) -> None:
+        stmt = text(
+            """
+            INSERT INTO guild_settings (guild_id, audit_channel_id)
+            VALUES (:guild_id, :channel_id)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET audit_channel_id=excluded.audit_channel_id
+            """
+        )
+        with self._engine.begin() as conn:
+            conn.execute(stmt, {"guild_id": guild_id, "channel_id": channel_id})
+
+    def get_audit_channel(self, guild_id: str) -> str | None:
+        stmt = select(self._tables.guild_settings.c.audit_channel_id).where(
+            self._tables.guild_settings.c.guild_id == guild_id
+        )
+        with self._engine.begin() as conn:
+            row = conn.execute(stmt).fetchone()
+        if not row:
+            return None
+        return row[0]
+
+    def set_rate_limit(self, guild_id: str, rate_per_min: int | None) -> None:
+        stmt = text(
+            """
+            INSERT INTO guild_settings (guild_id, rate_limit_per_min)
+            VALUES (:guild_id, :rate_limit)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET rate_limit_per_min=excluded.rate_limit_per_min
+            """
+        )
+        with self._engine.begin() as conn:
+            conn.execute(stmt, {"guild_id": guild_id, "rate_limit": rate_per_min})
+
+    def get_rate_limit(self, guild_id: str) -> int | None:
+        stmt = select(self._tables.guild_settings.c.rate_limit_per_min).where(
+            self._tables.guild_settings.c.guild_id == guild_id
+        )
+        with self._engine.begin() as conn:
+            row = conn.execute(stmt).fetchone()
+        if not row:
+            return None
+        return row[0]
+
     def set_live_status(
-        self, guild_id: str, soop_channel_id: str, is_live: bool, broad_no: str | None
+        self,
+        guild_id: str,
+        soop_channel_id: str,
+        is_live: bool,
+        broad_no: str | None,
+        last_notified_at: str | None = None,
     ) -> None:
         stmt = text(
             """
-            INSERT INTO live_status (guild_id, soop_channel_id, is_live, broad_no, updated_at)
-            VALUES (:guild_id, :soop_channel_id, :is_live, :broad_no, :updated_at)
+            INSERT INTO live_status
+            (guild_id, soop_channel_id, is_live, broad_no, last_notified_at, updated_at)
+            VALUES (:guild_id, :soop_channel_id, :is_live, :broad_no, :last_notified_at, :updated_at)
             ON CONFLICT (guild_id, soop_channel_id)
             DO UPDATE SET is_live=excluded.is_live,
                           broad_no=excluded.broad_no,
+                          last_notified_at=excluded.last_notified_at,
                           updated_at=excluded.updated_at
             """
         )
@@ -318,6 +407,7 @@ class Storage:
                     "soop_channel_id": soop_channel_id,
                     "is_live": int(is_live),
                     "broad_no": broad_no,
+                    "last_notified_at": last_notified_at,
                     "updated_at": datetime.utcnow().isoformat(),
                 },
             )
@@ -330,6 +420,7 @@ class Storage:
             f"{row['guild_id']}:{row['soop_channel_id']}": {
                 "is_live": bool(row["is_live"]),
                 "broad_no": row["broad_no"],
+                "last_notified_at": row.get("last_notified_at"),
             }
             for row in rows
         }
@@ -368,3 +459,23 @@ class Storage:
             return True
         except Exception:
             return False
+
+    def set_poll_state(self, key: str, value: str | None) -> None:
+        stmt = text(
+            """
+            INSERT INTO poll_state (key, value)
+            VALUES (:key, :value)
+            ON CONFLICT (key)
+            DO UPDATE SET value=excluded.value
+            """
+        )
+        with self._engine.begin() as conn:
+            conn.execute(stmt, {"key": key, "value": value})
+
+    def get_poll_state(self, key: str) -> str | None:
+        stmt = select(self._tables.poll_state.c.value).where(self._tables.poll_state.c.key == key)
+        with self._engine.begin() as conn:
+            row = conn.execute(stmt).fetchone()
+        if not row:
+            return None
+        return row[0]

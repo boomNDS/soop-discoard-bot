@@ -3,26 +3,31 @@ import re
 import discord
 from discord.ext import commands
 
-from soupnotify.core.discord_utils import safe_respond
 from soupnotify.core.command_log import log_command
+from soupnotify.core.discord_utils import safe_respond
+from soupnotify.core.embeds import build_live_embed
+from soupnotify.core.render import render_embed_overrides, render_message
 from soupnotify.core.storage import Storage
 
 
 CHANNEL_MENTION_RE = re.compile(r"^<#(\d+)>$")
 
 
-def _is_admin(ctx: discord.ApplicationContext) -> bool:
+def _is_admin(ctx: discord.ApplicationContext, storage: Storage) -> bool:
     member = ctx.user if isinstance(ctx.user, discord.Member) else None
     if not member and ctx.guild:
         member = ctx.guild.get_member(ctx.user.id)
     if not member:
         return False
+    admin_role_id = storage.get_admin_role(str(ctx.guild.id)) if ctx.guild else None
+    if admin_role_id and any(str(role.id) == admin_role_id for role in member.roles):
+        return True
     perms = member.guild_permissions
     return perms.administrator or perms.manage_guild
 
 
-async def _require_admin(ctx: discord.ApplicationContext) -> bool:
-    if _is_admin(ctx):
+async def _require_admin(ctx: discord.ApplicationContext, storage: Storage) -> bool:
+    if _is_admin(ctx, storage):
         return True
     await safe_respond(ctx, "You need Manage Server permission to use this command.", ephemeral=True)
     return False
@@ -50,6 +55,52 @@ def _parse_channel_id(value: str | None) -> str | None:
     if value.isdigit():
         return value
     return None
+
+
+def _filter_links(
+    links: list[dict],
+    soop_channel_id: str | None,
+    notify_channel_id: str | None,
+) -> list[dict]:
+    filtered = links
+    if soop_channel_id:
+        filtered = [link for link in filtered if link["soop_channel_id"] == soop_channel_id]
+    if notify_channel_id:
+        filtered = [link for link in filtered if link["notify_channel_id"] == notify_channel_id]
+    return filtered
+
+
+def _preview_embed(
+    soop_channel_id: str,
+    notify_channel_id: int,
+    guild_name: str,
+    stream_url_base: str,
+    embed_settings: dict,
+) -> discord.Embed:
+    stream_url = f"{stream_url_base}/{soop_channel_id}"
+    title_override, description_override, color_override = render_embed_overrides(
+        embed_settings,
+        soop_channel_id,
+        notify_channel_id,
+        guild_name,
+        stream_url_base,
+    )
+    info = {
+        "broadTitle": "Preview: stream title",
+        "categoryName": "Category",
+        "currentSumViewer": 123,
+        "broadNo": "000000",
+    }
+    thumbnail_url = "https://liveimg.sooplive.co.kr/h/000000.webp"
+    return build_live_embed(
+        soop_channel_id,
+        stream_url,
+        info,
+        thumbnail_url,
+        title_override=title_override,
+        description_override=description_override,
+        color_hex=color_override,
+    )
 
 
 class _LinkListView(discord.ui.View):
@@ -100,6 +151,17 @@ class LinksCog(commands.Cog):
         self._settings = settings
         self._notifier = notifier
 
+    async def _send_audit(self, guild_id: str, message: str) -> None:
+        channel_id = self._storage.get_audit_channel(guild_id)
+        if not channel_id:
+            return
+        channel = self._bot.get_channel(int(channel_id))
+        if channel:
+            try:
+                await channel.send(message)
+            except Exception:
+                pass
+
     @commands.slash_command(name="link", description="Link this server to a SOOP channel")
     async def link(
         self,
@@ -120,7 +182,7 @@ class LinksCog(commands.Cog):
         if not ctx.guild:
             await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
             return
-        if not await _require_admin(ctx):
+        if not await _require_admin(ctx, self._storage):
             return
         if notify_channel:
             notify_channel_id = _parse_channel_id(notify_channel)
@@ -149,6 +211,10 @@ class LinksCog(commands.Cog):
             f"Linked SOOP `{soop_channel_id}` to <#{notify_channel_id}>.",
             ephemeral=True,
         )
+        await self._send_audit(
+            str(ctx.guild.id),
+            f"Linked `{soop_channel_id}` -> <#{notify_channel_id}> by {ctx.user.mention}.",
+        )
 
     @commands.slash_command(name="unlink", description="Remove the SOOP link for this server")
     async def unlink(
@@ -160,11 +226,15 @@ class LinksCog(commands.Cog):
         if not ctx.guild:
             await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
             return
-        if not await _require_admin(ctx):
+        if not await _require_admin(ctx, self._storage):
             return
         removed = self._storage.remove_link(str(ctx.guild.id), soop_channel_id)
         if removed:
             await safe_respond(ctx, "Link removed.", ephemeral=True)
+            await self._send_audit(
+                str(ctx.guild.id),
+                f"Unlinked `{soop_channel_id}` by {ctx.user.mention}.",
+            )
         else:
             await safe_respond(ctx, "No link found for this server.", ephemeral=True)
 
@@ -174,11 +244,15 @@ class LinksCog(commands.Cog):
         if not ctx.guild:
             await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
             return
-        if not await _require_admin(ctx):
+        if not await _require_admin(ctx, self._storage):
             return
         removed = self._storage.remove_link(str(ctx.guild.id))
         if removed:
             await safe_respond(ctx, "All links removed.", ephemeral=True)
+            await self._send_audit(
+                str(ctx.guild.id),
+                f"Removed all links by {ctx.user.mention}.",
+            )
         else:
             await safe_respond(ctx, "No links found for this server.", ephemeral=True)
 
@@ -209,8 +283,29 @@ class LinksCog(commands.Cog):
         self,
         ctx: discord.ApplicationContext,
         page: discord.Option(int, "Page number", required=False),
+        soop_channel_id: discord.Option(str, "Filter by SOOP channel", required=False),
+        notify_channel: discord.Option(str, "Filter by notify channel", required=False),
     ) -> None:
         log_command(ctx, "link_list")
+        if not ctx.guild:
+            await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
+            return
+        links = self._storage.get_links(str(ctx.guild.id))
+        notify_channel_id = _parse_channel_id(notify_channel)
+        filtered = _filter_links(links, soop_channel_id, notify_channel_id)
+        if not filtered:
+            await safe_respond(ctx, "No SOOP links configured.", ephemeral=True)
+            return
+        page_size = 10
+        total_pages = (len(filtered) + page_size - 1) // page_size
+        page = max(1, min(page or 1, total_pages))
+        content = _format_links_page(filtered, page, page_size)
+        view = _LinkListView(filtered, page, page_size)
+        await safe_respond(ctx, content, view=view, ephemeral=True)
+
+    @commands.slash_command(name="preview", description="Preview the live notification message")
+    async def preview(self, ctx: discord.ApplicationContext) -> None:
+        log_command(ctx, "preview")
         if not ctx.guild:
             await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
             return
@@ -218,12 +313,26 @@ class LinksCog(commands.Cog):
         if not links:
             await safe_respond(ctx, "No SOOP links configured.", ephemeral=True)
             return
-        page_size = 10
-        total_pages = (len(links) + page_size - 1) // page_size
-        page = max(1, min(page or 1, total_pages))
-        content = _format_links_page(links, page, page_size)
-        view = _LinkListView(links, page, page_size)
-        await safe_respond(ctx, content, view=view, ephemeral=True)
+        target = links[0]
+        notify_channel_id = int(target["notify_channel_id"])
+        template = target.get("message_template")
+        message = render_message(
+            template,
+            target["soop_channel_id"],
+            notify_channel_id,
+            ctx.guild.name,
+            self._settings.soop_stream_url_base,
+            None,
+        )
+        embed_settings = self._storage.get_embed_template(str(ctx.guild.id))
+        embed = _preview_embed(
+            target["soop_channel_id"],
+            notify_channel_id,
+            ctx.guild.name,
+            self._settings.soop_stream_url_base,
+            embed_settings,
+        )
+        await safe_respond(ctx, message, embed=embed, ephemeral=True)
 
     @commands.slash_command(name="test", description="Send a test notification")
     async def test(
@@ -271,7 +380,7 @@ class LinksCog(commands.Cog):
         if not ctx.guild:
             await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
             return
-        if action in {"set", "clear"} and not await _require_admin(ctx):
+        if action in {"set", "clear"} and not await _require_admin(ctx, self._storage):
             return
         if action == "list":
             links = self._storage.get_links(str(ctx.guild.id))
@@ -301,6 +410,10 @@ class LinksCog(commands.Cog):
                 await safe_respond(ctx, "That SOOP channel is not linked.", ephemeral=True)
                 return
             await safe_respond(ctx, "Template cleared.", ephemeral=True)
+            await self._send_audit(
+                str(ctx.guild.id),
+                f"Cleared template for `{soop_channel_id}` by {ctx.user.mention}.",
+            )
             return
 
         if not message_template:
@@ -312,6 +425,10 @@ class LinksCog(commands.Cog):
             await safe_respond(ctx, "That SOOP channel is not linked.", ephemeral=True)
             return
         await safe_respond(ctx, "Template updated.", ephemeral=True)
+        await self._send_audit(
+            str(ctx.guild.id),
+            f"Updated template for `{soop_channel_id}` by {ctx.user.mention}.",
+        )
 
     @commands.slash_command(name="default_channel", description="Set or clear default notify channel")
     async def default_channel(
@@ -324,7 +441,7 @@ class LinksCog(commands.Cog):
         if not ctx.guild:
             await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
             return
-        if not await _require_admin(ctx):
+        if not await _require_admin(ctx, self._storage):
             return
         if action == "set":
             channel_id = _parse_channel_id(channel)
@@ -335,9 +452,17 @@ class LinksCog(commands.Cog):
                 return
             self._storage.set_default_notify_channel(str(ctx.guild.id), str(channel_id))
             await safe_respond(ctx, f"Default channel set to <#{channel_id}>.", ephemeral=True)
+            await self._send_audit(
+                str(ctx.guild.id),
+                f"Default channel set to <#{channel_id}> by {ctx.user.mention}.",
+            )
             return
         self._storage.set_default_notify_channel(str(ctx.guild.id), None)
         await safe_respond(ctx, "Default channel cleared.", ephemeral=True)
+        await self._send_audit(
+            str(ctx.guild.id),
+            f"Default channel cleared by {ctx.user.mention}.",
+        )
 
     @commands.slash_command(name="mention", description="Configure mentions for live notifications")
     async def mention(
@@ -356,7 +481,7 @@ class LinksCog(commands.Cog):
         if not ctx.guild:
             await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
             return
-        if action in {"set", "clear"} and not await _require_admin(ctx):
+        if action in {"set", "clear"} and not await _require_admin(ctx, self._storage):
             return
         if action == "show":
             current = self._storage.get_mention(str(ctx.guild.id))
@@ -370,6 +495,10 @@ class LinksCog(commands.Cog):
         if action == "clear":
             self._storage.set_mention(str(ctx.guild.id), None, None)
             await safe_respond(ctx, "Mentions disabled.", ephemeral=True)
+            await self._send_audit(
+                str(ctx.guild.id),
+                f"Mentions cleared by {ctx.user.mention}.",
+            )
             return
         if not mention_type:
             await safe_respond(ctx, "Choose a mention type.", ephemeral=True)
@@ -377,10 +506,18 @@ class LinksCog(commands.Cog):
         if mention_type == "none":
             self._storage.set_mention(str(ctx.guild.id), None, None)
             await safe_respond(ctx, "Mentions disabled.", ephemeral=True)
+            await self._send_audit(
+                str(ctx.guild.id),
+                f"Mentions cleared by {ctx.user.mention}.",
+            )
             return
         if mention_type == "everyone":
             self._storage.set_mention(str(ctx.guild.id), "everyone", None)
             await safe_respond(ctx, "Mentions set to @everyone.", ephemeral=True)
+            await self._send_audit(
+                str(ctx.guild.id),
+                f"Mentions set to @everyone by {ctx.user.mention}.",
+            )
             return
         if mention_type == "role":
             if not role:
@@ -388,6 +525,10 @@ class LinksCog(commands.Cog):
                 return
             self._storage.set_mention(str(ctx.guild.id), "role", str(role.id))
             await safe_respond(ctx, f"Mentions set to {role.mention}.", ephemeral=True)
+            await self._send_audit(
+                str(ctx.guild.id),
+                f"Mentions set to {role.mention} by {ctx.user.mention}.",
+            )
 
     @commands.slash_command(name="embed_template", description="Customize live notification embed")
     async def embed_template(
@@ -402,7 +543,7 @@ class LinksCog(commands.Cog):
         if not ctx.guild:
             await safe_respond(ctx, "This command must be used in a server.", ephemeral=True)
             return
-        if action in {"set", "clear"} and not await _require_admin(ctx):
+        if action in {"set", "clear"} and not await _require_admin(ctx, self._storage):
             return
         if action == "show":
             current = self._storage.get_embed_template(str(ctx.guild.id))
@@ -417,6 +558,10 @@ class LinksCog(commands.Cog):
         if action == "clear":
             self._storage.set_embed_template(str(ctx.guild.id), None, None, None)
             await safe_respond(ctx, "Embed template cleared.", ephemeral=True)
+            await self._send_audit(
+                str(ctx.guild.id),
+                f"Embed template cleared by {ctx.user.mention}.",
+            )
             return
         if not title and not description and not color:
             await safe_respond(
@@ -433,3 +578,7 @@ class LinksCog(commands.Cog):
             color = color_value
         self._storage.set_embed_template(str(ctx.guild.id), title, description, color)
         await safe_respond(ctx, "Embed template updated.", ephemeral=True)
+        await self._send_audit(
+            str(ctx.guild.id),
+            f"Embed template updated by {ctx.user.mention}.",
+        )

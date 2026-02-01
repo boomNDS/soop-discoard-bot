@@ -54,6 +54,7 @@ def test_storage_defaults_and_live_status(tmp_path):
     live = storage.load_live_status()
     assert live["guild-1:streamer-1"]["is_live"] is True
     assert live["guild-1:streamer-1"]["broad_no"] == "111"
+    assert live["guild-1:streamer-1"]["last_notified_at"] is None
     assert live["guild-1:streamer-2"]["is_live"] is False
 
     storage.set_embed_template("guild-1", "Title {guild}", "Desc {soop_channel_id}", "FF5500")

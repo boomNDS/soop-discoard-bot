@@ -1,12 +1,14 @@
 import asyncio
 import logging
 import time
+from datetime import datetime
 
 import discord
 
 from soupnotify.core.embeds import build_live_embed
 from soupnotify.core.metrics import BotMetrics
 from soupnotify.core.notifier import Notifier
+from soupnotify.core.rate_limit import GuildRateLimiter
 from soupnotify.core.render import render_embed_overrides, render_message
 from soupnotify.core.storage import Storage
 from soupnotify.soop.client import SoopClient
@@ -37,6 +39,7 @@ class SoopPoller:
         self._info_cache: dict[str, dict] = {}
         self._info_cache_ts: dict[str, float] = {}
         self._info_cooldown = max(info_cooldown_seconds, 1)
+        self._rate_limiter = GuildRateLimiter()
         for key, status in self._storage.load_live_status().items():
             self._last_live[key] = bool(status.get("is_live"))
             self._last_broad_no[key] = status.get("broad_no")  # type: ignore[assignment]
@@ -70,6 +73,9 @@ class SoopPoller:
                     info_map[streamer_id] = result
 
         live_ids = {streamer_id for streamer_id, info in info_map.items() if info}
+        empty_count = sum(1 for info in info_map.values() if not info)
+        if empty_count:
+            self._metrics.record_empty_response(empty_count)
 
         for link in links:
             guild_id = link["guild_id"]
@@ -88,6 +94,9 @@ class SoopPoller:
                 broad_no = str(info.get("broadNo")) if info and info.get("broadNo") else None
 
             should_notify = is_live and not was_live
+            rate_limit = self._storage.get_rate_limit(guild_id)
+            if should_notify and not self._rate_limiter.allow(guild_id, rate_limit):
+                should_notify = False
 
             if should_notify:
                 guild = bot.get_guild(int(guild_id)) if guild_id.isdigit() else None
@@ -122,11 +131,27 @@ class SoopPoller:
                 )
                 view = _watch_view(stream_url)
                 await self._notifier.enqueue(notify_channel_id, message, embed=embed, view=view)
+                last_notified_at = datetime.utcnow().isoformat()
             self._last_live[key] = is_live
             self._last_broad_no[key] = broad_no
-            self._storage.set_live_status(guild_id, soop_channel_id, is_live, broad_no)
+            self._storage.set_live_status(
+                guild_id,
+                soop_channel_id,
+                is_live,
+                broad_no,
+                last_notified_at if should_notify else None,
+            )
         duration_ms = (time.perf_counter() - start) * 1000
         self._metrics.record_poll(duration_ms, len(live_ids))
+        self._metrics.record_live_detected(len(live_ids))
+        logger.info(
+            "Poll summary: links=%s live=%s empty=%s duration_ms=%.1f",
+            len(links),
+            len(live_ids),
+            empty_count,
+            duration_ms,
+        )
+        self._storage.set_poll_state("last_poll_at", datetime.utcnow().isoformat())
 
     async def _get_broad_info(self, streamer_id: str) -> dict | None:
         now = time.time()

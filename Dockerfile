@@ -11,13 +11,13 @@ WORKDIR /app
 # Install uv (fast Python package manager)
 RUN pip install --no-cache-dir uv
 
-# Install dependencies first for better layer caching
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
-
-# Copy application code
+# Copy project files needed for build
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 COPY scripts ./scripts
+
+# Install dependencies
+RUN uv sync --frozen --no-dev
 
 EXPOSE 8000
 

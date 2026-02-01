@@ -233,6 +233,28 @@ DATABASE_URL=postgresql+psycopg://root:change_me@db:5432/soupnotify
 
 The compose file runs two services (api + bot) plus Postgres, and validates required env vars on startup.
 
+### Fly.io (bot process)
+
+This project uses a `bot` process group in `fly.toml`, so Fly runs the bot even though the
+Dockerfile defaults to the API.
+
+```
+[processes]
+bot = "uv run python -m soupnotify.bot"
+```
+
+Deploy:
+
+```
+flyctl deploy -a soup-notify
+```
+
+Scale the bot process:
+
+```
+fly scale count 1 --process bot
+```
+
 ## Migrations
 
 Run database migrations with Alembic (Postgres or SQLite). The app requires migrations before startup:

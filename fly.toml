@@ -5,14 +5,12 @@ primary_region = "sin"
   dockerfile = "Dockerfile"
 
 [processes]
-  api = "uv run uvicorn soupnotify.app.main:app --host 0.0.0.0 --port 8000"
-  bot = "uv run python -m soupnotify.bot"
+  app = "sh scripts/start_all.sh"
 
 [env]
   LOG_LEVEL = "info"
 
 [[services]]
-  processes = ["api"]
   internal_port = 8000
   protocol = "tcp"
 

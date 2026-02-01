@@ -77,7 +77,7 @@ uv run uvicorn soupnotify.app.main:app --host 0.0.0.0 --port 8000
 ```bash
 uv run python -m soupnotify.bot
 ```
-> Live detection uses `/broad/list` and matches `user_id` values. Adjust parsing in `soupnotify/soop/client.py` if needed.
+> Live detection uses the channel endpoint and returns a live payload per streamer. Adjust parsing in `soupnotify/soop/client.py` if needed.
 
 ## Configuration
 
@@ -85,7 +85,7 @@ Minimum env values for API only (Postgres via docker-compose):
 
 ```
 SOOP_API_BASE_URL=https://openapi.sooplive.co.kr
-SOOP_CLIENT_ID=your_soop_client_id
+SOOP_CLIENT_ID=
 DATABASE_URL=postgresql+psycopg://root:change_me@db:5432/soupnotify
 ```
 
@@ -107,8 +107,8 @@ DISCORD_APPLICATION_ID=your_app_id
 | DISCORD_TOKEN | Discord bot token | Yes |
 | DISCORD_APPLICATION_ID | Discord application ID | Yes |
 | DISCORD_GUILD_ID | Dev-only: enable instant slash command sync | No |
-| SOOP_API_BASE_URL | SOOP API base URL | Yes |
-| SOOP_CLIENT_ID | SOOP OpenAPI client_id | Yes |
+| SOOP_API_BASE_URL | Legacy SOOP API base URL (unused for channel polling) | No |
+| SOOP_CLIENT_ID | Legacy SOOP OpenAPI client_id (unused for channel polling) | No |
 | SOOP_CHANNEL_API_BASE_URL | Channel API base URL (single streamer) | No |
 | SOOP_HARDCODE_STREAMER_ID | Force-check one streamer via channel API | No |
 | SOOP_STREAM_URL_BASE | Base URL for streamer pages | No |
@@ -119,6 +119,7 @@ DISCORD_APPLICATION_ID=your_app_id
 | SOOP_MAX_PAGES | Max pages to scan per poll | No |
 | SOOP_RETRY_MAX | SOOP request retry attempts | No |
 | SOOP_RETRY_BACKOFF | Base seconds for retry backoff | No |
+| SOOP_INFO_COOLDOWN_SECONDS | Cache cooldown for channel info | No |
 | NOTIFY_RATE_PER_SECOND | Max notification send rate | No |
 | NOTIFY_BURST_RATE_PER_SECOND | Burst send rate when queue is large | No |
 | NOTIFY_BURST_THRESHOLD | Queue size that triggers burst mode | No |
@@ -131,23 +132,29 @@ SOOP API docs (reference):
 https://openapi.sooplive.co.kr/apidoc#broadcast-filtering-registrationmodificationpost
 ```
 
-Live detection currently uses the `/broad/list` endpoint and matches `user_id` against linked streamers.
+Live detection uses the channel endpoint:
+
+```
+https://api-channel.sooplive.co.kr/v1.1/channel/<soop_channel_id>/home/section/broad
+```
 
 ## Discord Commands
 
-- `/link soop_channel:<id> [notify_channel:<#channel>]` (uses default if set)
+- `/link soop_channel:<id> [notify_channel:<#channel|id>]` (uses default if set)
 - `/unlink soop_channel:<id>`
 - `/unlink_all`
 - `/status` (lists linked streamers)
 - `/test [soop_channel:<id>]`
 - `/template action:<set|clear|list> soop_channel:<id> message_template:<text>`
 - `/embed_template action:<set|clear|show> title:<text> description:<text> color:<hex>`
-- `/default_channel action:<set|clear> channel:<#channel>`
+- `/default_channel action:<set|clear> channel:<#channel|id>`
+- `/mention action:<set|clear|show> type:<none|everyone|role> role:<@role>`
 - `/link_list [page:<n>]`
 - `/config`
 - `/metrics`
 - `/help`
 - `/debug_live_status`
+- `/sync`
 
 Template variables:
 
@@ -161,7 +168,7 @@ Embed template supports the same variables for title/description.
 Notifications include a Discord embed (title, category, viewers) when SOOP channel info is available.
 Embed image is built from `SOOP_THUMBNAIL_URL_TEMPLATE` using the `broadNo` value.
 
-Admin-only commands: `/link`, `/unlink`, `/unlink_all`, `/template set/clear`, `/default_channel`, `/config`, `/metrics`.
+Admin-only commands: `/link`, `/unlink`, `/unlink_all`, `/template set/clear`, `/embed_template`, `/default_channel`, `/mention`, `/config`, `/metrics`, `/sync`, `/debug_live_status`.
 
 Live notifications are de-duplicated per streamer using the latest `broadNo` so restarts do not spam.
 
@@ -201,6 +208,17 @@ Run database migrations with Alembic (Postgres or SQLite). The app requires migr
 ```bash
 uv run alembic upgrade head
 ```
+
+### Schema source of truth
+
+This project is **migrations-only**. Alembic versions in `alembic/versions/` are the single source of truth
+for schema changes. SQLAlchemy models are not used to define tables.
+
+When you change the schema:
+
+- Create a new Alembic version file with imperative operations.
+- Run `uv run alembic upgrade head`.
+- Update `Storage` table definitions to match the new schema (queries only).
 
 ### Postgres (Docker) migration guide
 

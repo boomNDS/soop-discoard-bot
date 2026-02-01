@@ -56,6 +56,8 @@ class Storage:
             Column("embed_title", Text, nullable=True),
             Column("embed_description", Text, nullable=True),
             Column("embed_color", String, nullable=True),
+            Column("mention_type", String, nullable=True),
+            Column("mention_value", String, nullable=True),
         )
         live_status = Table(
             "live_status",
@@ -263,6 +265,37 @@ class Storage:
         if not row:
             return {"title": None, "description": None, "color": None}
         return {"title": row[0], "description": row[1], "color": row[2]}
+
+    def set_mention(self, guild_id: str, mention_type: str | None, mention_value: str | None) -> None:
+        stmt = text(
+            """
+            INSERT INTO guild_settings (guild_id, mention_type, mention_value)
+            VALUES (:guild_id, :mention_type, :mention_value)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET mention_type=excluded.mention_type,
+                          mention_value=excluded.mention_value
+            """
+        )
+        with self._engine.begin() as conn:
+            conn.execute(
+                stmt,
+                {
+                    "guild_id": guild_id,
+                    "mention_type": mention_type,
+                    "mention_value": mention_value,
+                },
+            )
+
+    def get_mention(self, guild_id: str) -> dict[str, str | None]:
+        stmt = select(
+            self._tables.guild_settings.c.mention_type,
+            self._tables.guild_settings.c.mention_value,
+        ).where(self._tables.guild_settings.c.guild_id == guild_id)
+        with self._engine.begin() as conn:
+            row = conn.execute(stmt).fetchone()
+        if not row:
+            return {"type": None, "value": None}
+        return {"type": row[0], "value": row[1]}
 
     def set_live_status(
         self, guild_id: str, soop_channel_id: str, is_live: bool, broad_no: str | None

@@ -1,8 +1,10 @@
 import pytest
 
-from soupnotify.core.storage import Storage
 from soupnotify.core.metrics import BotMetrics
+from soupnotify.core.storage import Storage
 from soupnotify.soop.poller import SoopPoller
+
+from tests.conftest import apply_migrations
 
 
 class FakeClient:
@@ -49,7 +51,9 @@ class FakeBot:
 @pytest.mark.asyncio
 async def test_poller_sends_only_on_live_transition(tmp_path):
     db_path = tmp_path / "soop.db"
-    storage = Storage(f"sqlite:///{db_path}")
+    database_url = f"sqlite:///{db_path}"
+    apply_migrations(database_url)
+    storage = Storage(database_url)
     storage.add_link(
         "guild-1",
         "streamer-1",
@@ -81,6 +85,7 @@ async def test_poller_sends_only_on_live_transition(tmp_path):
         "https://play.sooplive.co.kr",
         metrics,
         interval_seconds=1,
+        info_cooldown_seconds=60,
     )
 
     await poller._poll_once(bot)

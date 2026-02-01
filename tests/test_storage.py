@@ -1,9 +1,13 @@
 from soupnotify.core.storage import Storage
 
+from tests.conftest import apply_migrations
+
 
 def test_storage_add_get_remove(tmp_path):
     db_path = tmp_path / "soop.db"
-    storage = Storage(f"sqlite:///{db_path}")
+    database_url = f"sqlite:///{db_path}"
+    apply_migrations(database_url)
+    storage = Storage(database_url)
 
     storage.add_link("guild-1", "streamer-1", "channel-1", "Live: {soop_channel_id}")
     storage.add_link("guild-1", "streamer-2", "channel-2")
@@ -35,7 +39,9 @@ def test_storage_add_get_remove(tmp_path):
 
 def test_storage_defaults_and_live_status(tmp_path):
     db_path = tmp_path / "soop.db"
-    storage = Storage(f"sqlite:///{db_path}")
+    database_url = f"sqlite:///{db_path}"
+    apply_migrations(database_url)
+    storage = Storage(database_url)
 
     assert storage.get_default_notify_channel("guild-1") is None
     storage.set_default_notify_channel("guild-1", "channel-9")
@@ -55,3 +61,18 @@ def test_storage_defaults_and_live_status(tmp_path):
     assert embed["title"] == "Title {guild}"
     assert embed["description"] == "Desc {soop_channel_id}"
     assert embed["color"] == "FF5500"
+
+
+def test_storage_mentions(tmp_path):
+    db_path = tmp_path / "soop.db"
+    database_url = f"sqlite:///{db_path}"
+    apply_migrations(database_url)
+    storage = Storage(database_url)
+
+    assert storage.get_mention("guild-1") == {"type": None, "value": None}
+    storage.set_mention("guild-1", "everyone", None)
+    assert storage.get_mention("guild-1") == {"type": "everyone", "value": None}
+    storage.set_mention("guild-1", "role", "123")
+    assert storage.get_mention("guild-1") == {"type": "role", "value": "123"}
+    storage.set_mention("guild-1", None, None)
+    assert storage.get_mention("guild-1") == {"type": None, "value": None}

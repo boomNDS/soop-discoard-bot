@@ -7,6 +7,7 @@ import discord
 from soupnotify.core.embeds import build_live_embed
 from soupnotify.core.metrics import BotMetrics
 from soupnotify.core.notifier import Notifier
+from soupnotify.core.render import render_embed_overrides, render_message
 from soupnotify.core.storage import Storage
 from soupnotify.soop.client import SoopClient
 
@@ -23,6 +24,7 @@ class SoopPoller:
         stream_url_base: str,
         metrics: BotMetrics,
         interval_seconds: int,
+        info_cooldown_seconds: int,
     ) -> None:
         self._client = client
         self._storage = storage
@@ -32,6 +34,9 @@ class SoopPoller:
         self._metrics = metrics
         self._last_live: dict[str, bool] = {}
         self._last_broad_no: dict[str, str | None] = {}
+        self._info_cache: dict[str, dict] = {}
+        self._info_cache_ts: dict[str, float] = {}
+        self._info_cooldown = max(info_cooldown_seconds, 1)
         for key, status in self._storage.load_live_status().items():
             self._last_live[key] = bool(status.get("is_live"))
             self._last_broad_no[key] = status.get("broad_no")  # type: ignore[assignment]
@@ -50,11 +55,21 @@ class SoopPoller:
         active_keys = {f"{link['guild_id']}:{link['soop_channel_id']}" for link in links}
         self._storage.prune_live_status(active_keys)
         target_ids = {link["soop_channel_id"] for link in links}
-        try:
-            live_ids = await self._client.fetch_live_user_ids(target_ids)
-        except Exception:
-            logger.exception("Failed to fetch SOOP live list")
-            return
+        info_map: dict[str, dict | None] = {}
+        if target_ids:
+            results = await asyncio.gather(
+                *[self._get_broad_info(streamer_id) for streamer_id in target_ids],
+                return_exceptions=True,
+            )
+            for streamer_id, result in zip(target_ids, results):
+                if isinstance(result, Exception):
+                    self._metrics.record_api_error()
+                    logger.warning("SOOP info fetch failed for %s: %s", streamer_id, result)
+                    info_map[streamer_id] = None
+                else:
+                    info_map[streamer_id] = result
+
+        live_ids = {streamer_id for streamer_id, info in info_map.items() if info}
 
         for link in links:
             guild_id = link["guild_id"]
@@ -69,7 +84,7 @@ class SoopPoller:
             info = None
             broad_no = None
             if is_live:
-                info = await self._client.fetch_broad_info(soop_channel_id)
+                info = info_map.get(soop_channel_id)
                 broad_no = str(info.get("broadNo")) if info and info.get("broadNo") else None
 
             should_notify = is_live and (
@@ -79,25 +94,20 @@ class SoopPoller:
             if should_notify:
                 guild = bot.get_guild(int(guild_id)) if guild_id.isdigit() else None
                 template = link.get("message_template")
-                message = _render_message(
+                mention = _mention_text(self._storage.get_mention(guild_id))
+                message = render_message(
                     template,
                     soop_channel_id,
                     notify_channel_id,
                     guild.name if guild else guild_id,
                     self._stream_url_base,
+                    mention,
                 )
                 stream_url = f"{self._stream_url_base}/{soop_channel_id}"
                 thumbnail_url = _thumbnail_url(self._client, info)
                 embed_settings = self._storage.get_embed_template(guild_id)
-                title_override = _render_template_value(
-                    embed_settings.get("title"),
-                    soop_channel_id,
-                    notify_channel_id,
-                    guild.name if guild else guild_id,
-                    self._stream_url_base,
-                )
-                description_override = _render_template_value(
-                    embed_settings.get("description"),
+                title_override, description_override, color_override = render_embed_overrides(
+                    embed_settings,
                     soop_channel_id,
                     notify_channel_id,
                     guild.name if guild else guild_id,
@@ -110,53 +120,41 @@ class SoopPoller:
                     thumbnail_url,
                     title_override=title_override,
                     description_override=description_override,
-                    color_hex=embed_settings.get("color"),
+                    color_hex=color_override,
                 )
                 await self._notifier.enqueue(notify_channel_id, message, embed=embed)
             self._last_live[key] = is_live
             self._last_broad_no[key] = broad_no
             self._storage.set_live_status(guild_id, soop_channel_id, is_live, broad_no)
         duration_ms = (time.perf_counter() - start) * 1000
-        self._metrics.record_poll(duration_ms)
+        self._metrics.record_poll(duration_ms, len(live_ids))
 
-
-def _render_message(
-    template: str | None,
-    soop_channel_id: str,
-    notify_channel_id: int,
-    guild_name: str,
-    stream_url_base: str,
-) -> str:
-    soop_url = f"{stream_url_base}/{soop_channel_id}"
-    if template:
-        return (
-            template.replace("{soop_channel_id}", soop_channel_id)
-            .replace("{notify_channel}", f"<#{notify_channel_id}>")
-            .replace("{guild}", guild_name)
-            .replace("{soop_url}", soop_url)
-        )
-    return f"\N{LARGE RED CIRCLE} **Live Now** on SOOP: `{soop_channel_id}` {soop_url}"
-
-
-def _render_template_value(
-    template: str | None,
-    soop_channel_id: str,
-    notify_channel_id: int,
-    guild_name: str,
-    stream_url_base: str,
-) -> str | None:
-    if not template:
-        return None
-    soop_url = f"{stream_url_base}/{soop_channel_id}"
-    return (
-        template.replace("{soop_channel_id}", soop_channel_id)
-        .replace("{notify_channel}", f"<#{notify_channel_id}>")
-        .replace("{guild}", guild_name)
-        .replace("{soop_url}", soop_url)
-    )
+    async def _get_broad_info(self, streamer_id: str) -> dict | None:
+        now = time.time()
+        cached = self._info_cache.get(streamer_id)
+        last_fetch = self._info_cache_ts.get(streamer_id, 0.0)
+        if cached and now - last_fetch < self._info_cooldown:
+            self._metrics.record_cache_hit()
+            return cached
+        self._metrics.record_cache_miss()
+        info = await self._client.fetch_broad_info(streamer_id)
+        if info:
+            self._info_cache[streamer_id] = info
+            self._info_cache_ts[streamer_id] = now
+        return info
 
 
 def _thumbnail_url(client: SoopClient, info: dict | None) -> str | None:
     if not info:
         return None
     return client.build_thumbnail_url(info.get("broadNo"))
+
+
+def _mention_text(mention: dict[str, str | None]) -> str | None:
+    mention_type = mention.get("type")
+    value = mention.get("value")
+    if mention_type == "everyone":
+        return "@everyone"
+    if mention_type == "role" and value:
+        return f"<@&{value}>"
+    return None

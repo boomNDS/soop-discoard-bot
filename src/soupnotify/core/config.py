@@ -20,6 +20,7 @@ class Settings:
     shard_count: int | None
     soop_retry_max: int
     soop_retry_backoff: float
+    soop_info_cooldown_seconds: int
     log_level: str
 
 
@@ -38,9 +39,14 @@ def _get_env(name: str, required: bool = False, default: str | None = None) -> s
 
 
 def load_settings() -> Settings:
+    shard_raw = _get_env("SHARD_COUNT")
+    shard_count = int(shard_raw) if shard_raw else None
     return Settings(
-        soop_api_base_url=_get_env("SOOP_API_BASE_URL", required=True),
-        soop_client_id=_get_env("SOOP_CLIENT_ID", required=True),
+        soop_api_base_url=_get_env(
+            "SOOP_API_BASE_URL", default="https://openapi.sooplive.co.kr"
+        )
+        or "https://openapi.sooplive.co.kr",
+        soop_client_id=_get_env("SOOP_CLIENT_ID", default="") or "",
         soop_channel_api_base_url=_get_env(
             "SOOP_CHANNEL_API_BASE_URL", default="https://api-channel.sooplive.co.kr"
         )
@@ -68,14 +74,13 @@ def load_settings() -> Settings:
         notify_burst_threshold=int(
             _get_env("NOTIFY_BURST_THRESHOLD", default="25") or "25"
         ),
-        shard_count=(
-            int(_get_env("SHARD_COUNT"))
-            if _get_env("SHARD_COUNT") is not None
-            else None
-        ),
+        shard_count=shard_count,
         soop_retry_max=int(_get_env("SOOP_RETRY_MAX", default="3") or "3"),
         soop_retry_backoff=float(
             _get_env("SOOP_RETRY_BACKOFF", default="0.5") or "0.5"
+        ),
+        soop_info_cooldown_seconds=int(
+            _get_env("SOOP_INFO_COOLDOWN_SECONDS", default="30") or "30"
         ),
         log_level=_get_env("LOG_LEVEL", default="info") or "info",
     )

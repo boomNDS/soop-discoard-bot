@@ -6,7 +6,9 @@ from discord.ext import commands
 
 from soupnotify.bot.cogs.admin import AdminCog
 from soupnotify.bot.cogs.help import HelpCog
-from soupnotify.bot.cogs.links import LinksCog
+from soupnotify.bot.cogs.linking import LinkingCog
+from soupnotify.bot.cogs.notifications import NotificationsCog
+from soupnotify.bot.cogs.templates import TemplatesCog
 from soupnotify.core.config import load_bot_settings
 from soupnotify.core.metrics import BotMetrics
 from soupnotify.core.notifier import Notifier
@@ -76,7 +78,9 @@ async def on_application_command(ctx: discord.ApplicationContext) -> None:
 
 
 def _load_cogs() -> None:
-    bot.add_cog(LinksCog(bot, storage, settings, notifier))
+    bot.add_cog(LinkingCog(bot, storage))
+    bot.add_cog(NotificationsCog(bot, storage))
+    bot.add_cog(TemplatesCog(bot, storage, settings))
     bot.add_cog(AdminCog(bot, storage, settings, metrics))
     bot.add_cog(HelpCog())
 

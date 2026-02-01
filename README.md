@@ -179,6 +179,8 @@ Admin-only commands: `/link`, `/unlink`, `/unlink_all`, `/template set/clear`, `
 
 Admin access is granted to users with **Manage Server**, **Administrator**, or the role set by `/admin_role`.
 
+Commands are organized into separate cogs (Linking, Notifications, Templates, Admin) for easier maintenance.
+
 Live notifications are de-duplicated per streamer using the latest `broadNo` so restarts do not spam.
 
 ## Quick start (Discord)

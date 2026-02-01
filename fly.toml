@@ -1,12 +1,23 @@
-app = "soup-notify"
-primary_region = "sin"
+# fly.toml app configuration file generated for soup-notify on 2026-02-01T13:09:36Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'soup-notify'
+primary_region = 'iad'
 
 [build]
-  dockerfile = "Dockerfile"
 
-[processes]
-  bot = "uv run python -m soupnotify.bot"
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
 
-[env]
-  LOG_LEVEL = "info"
-
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 from typing import Any, Iterable
 
 import httpx
@@ -125,7 +126,9 @@ class SoopClient:
                     if 400 <= status < 500 and status != 429:
                         raise
                 last_error = exc
-                await asyncio.sleep(self._retry_backoff * (2**attempt))
+                base_delay = self._retry_backoff * (2**attempt)
+                jitter = random.uniform(0, self._retry_backoff)
+                await asyncio.sleep(base_delay + jitter)
         if last_error:
             raise last_error
         raise RuntimeError("SOOP request failed")

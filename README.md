@@ -151,13 +151,17 @@ SOOP_CHANNEL_HEADERS={"User-Agent":"Mozilla/5.0","Referer":"https://www.sooplive
 - `/embed_template action:<set|clear|show> title:<text> description:<text> color:<hex>`
 - `/default_channel action:<set|clear> channel:<#channel|id>`
 - `/mention action:<set|clear|show> type:<none|everyone|role> role:<@role>`
-- `/link_list [page:<n>]`
+- `/link_list [page:<n>] [soop_channel:<id>] [notify_channel:<#channel|id>]`
 - `/config`
 - `/metrics`
 - `/help`
 - `/debug_live_status`
 - `/reset_live_status`
+- `/admin_role`
+- `/audit_channel`
+- `/rate_limit`
 - `/sync`
+- `/preview`
 
 Template variables:
 
@@ -171,7 +175,11 @@ Embed template supports the same variables for title/description.
 Notifications include a Discord embed (title, category, viewers) when SOOP channel info is available.
 Embed image is built from `SOOP_THUMBNAIL_URL_TEMPLATE` using the `broadNo` value.
 
-Admin-only commands: `/link`, `/unlink`, `/unlink_all`, `/template set/clear`, `/embed_template`, `/default_channel`, `/mention`, `/config`, `/metrics`, `/sync`, `/debug_live_status`.
+Admin-only commands: `/link`, `/unlink`, `/unlink_all`, `/template set/clear`, `/embed_template`, `/default_channel`, `/mention`, `/config`, `/metrics`, `/sync`, `/debug_live_status`, `/reset_live_status`, `/admin_role`, `/audit_channel`, `/rate_limit`.
+
+Admin access is granted to users with **Manage Server**, **Administrator**, or the role set by `/admin_role`.
+
+Commands are organized into separate cogs (Linking, Notifications, Templates, Admin) for easier maintenance.
 
 Live notifications are de-duplicated per streamer using the latest `broadNo` so restarts do not spam.
 
@@ -232,6 +240,28 @@ DATABASE_URL=postgresql+psycopg://root:change_me@db:5432/soupnotify
 ```
 
 The compose file runs two services (api + bot) plus Postgres, and validates required env vars on startup.
+
+### Fly.io (bot process)
+
+This project uses a `bot` process group in `fly.toml`, so Fly runs the bot even though the
+Dockerfile defaults to the API.
+
+```
+[processes]
+bot = "uv run python -m soupnotify.bot"
+```
+
+Deploy:
+
+```
+flyctl deploy -a soup-notify
+```
+
+Scale the bot process:
+
+```
+fly scale count 1 --process bot
+```
 
 ## Migrations
 

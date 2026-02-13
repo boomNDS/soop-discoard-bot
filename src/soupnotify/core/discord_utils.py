@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import discord
 
 
@@ -18,3 +20,17 @@ async def safe_respond(
         await ctx.followup.send(**kwargs)
     else:
         await ctx.respond(**kwargs)
+
+
+CHANNEL_MENTION_RE = re.compile(r"^<#(\d+)>$")
+
+
+def parse_channel_id(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = CHANNEL_MENTION_RE.match(value.strip())
+    if match:
+        return match.group(1)
+    if value.isdigit():
+        return value
+    return None

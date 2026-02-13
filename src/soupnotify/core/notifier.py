@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 from dataclasses import dataclass
 
 import discord
@@ -80,4 +81,6 @@ class Notifier:
             except Exception:
                 self._metrics.record_failed()
                 logger.exception("Failed to send notification to %s", message.channel_id)
-                await asyncio.sleep(0.5 * (2**attempt))
+                base_delay = 0.5 * (2**attempt)
+                jitter = random.uniform(0, 0.2)
+                await asyncio.sleep(base_delay + jitter)
